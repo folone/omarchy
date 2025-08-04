@@ -1,0 +1,175 @@
+name: CI
+
+on:
+  push:
+    branches: [master, dev]
+  pull_request:
+    branches: [master, dev]
+  workflow_dispatch:
+
+jobs:
+  syntax-check:
+    runs-on: ubuntu-latest
+    name: Syntax Validation
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check bash syntax
+        run: |
+          echo "Checking bash syntax..."
+          errors=0
+          while IFS= read -r script; do
+            if [[ -f "$script" ]]; then
+              echo "Checking: $script"
+              if ! bash -n "$script"; then
+                echo "❌ Syntax error in $script"
+                errors=$((errors + 1))
+              fi
+            fi
+          done < <(find . -name "*.sh" -type f)
+
+          if [[ $errors -gt 0 ]]; then
+            echo "Found $errors syntax errors"
+            exit 1
+          fi
+          echo "✅ All shell scripts have valid syntax"
+
+      - name: Validate JSON/JSONC files
+        run: |
+          echo "Validating JSON files..."
+          errors=0
+
+          # Check regular JSON files
+          while IFS= read -r file; do
+            if [[ -f "$file" ]]; then
+              echo "Checking: $file"
+              if ! jq empty "$file" 2>/dev/null; then
+                echo "❌ Invalid JSON in $file"
+                errors=$((errors + 1))
+              fi
+            fi
+          done < <(find . -name "*.json" -type f)
+
+          # Check JSONC files (with comments)
+          while IFS= read -r file; do
+            if [[ -f "$file" ]]; then
+              echo "Checking: $file"
+              if ! jq empty "$file" 2>/dev/null; then
+                echo "❌ Invalid JSONC in $file"
+                errors=$((errors + 1))
+              fi
+            fi
+          done < <(find . -name "*.jsonc" -type f)
+
+          if [[ $errors -gt 0 ]]; then
+            echo "Found $errors JSON errors"
+            exit 1
+          fi
+          echo "✅ All JSON files are valid"
+
+  file-checks:
+    runs-on: ubuntu-latest
+    name: File Validation
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check executable permissions
+        run: |
+          echo "Checking file permissions..."
+          errors=0
+
+          # All files in bin/ should be executable
+          while IFS= read -r file; do
+            if [[ ! -x "$file" ]]; then
+              echo "❌ Missing executable permission: $file"
+              errors=$((errors + 1))
+            fi
+          done < <(find bin/ -type f 2>/dev/null || true)
+
+          # All migration files should be executable
+          while IFS= read -r file; do
+            if [[ ! -x "$file" ]]; then
+              echo "❌ Missing executable permission: $file"
+              errors=$((errors + 1))
+            fi
+          done < <(find migrations/ -name "*.sh" -type f 2>/dev/null || true)
+
+          if [[ $errors -gt 0 ]]; then
+            echo "Found $errors permission errors"
+            exit 1
+          fi
+          echo "✅ All required files have correct permissions"
+
+      - name: Check migration naming convention
+        run: |
+          echo "Checking migration naming..."
+          errors=0
+
+          for file in migrations/*.sh; do
+            if [[ -f "$file" ]]; then
+              basename=$(basename "$file")
+              if ! [[ "$basename" =~ ^[0-9]{10}\.sh$ ]]; then
+                echo "❌ Invalid migration name: $file (should be timestamp.sh)"
+                errors=$((errors + 1))
+              fi
+            fi
+          done
+
+          if [[ $errors -gt 0 ]]; then
+            echo "Found $errors naming errors"
+            exit 1
+          fi
+          echo "✅ All migrations follow naming convention"
+
+  shellcheck:
+    runs-on: ubuntu-latest
+    name: ShellCheck (Optional)
+    continue-on-error: true # Don't fail the build on shellcheck warnings
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run ShellCheck
+        run: |
+          echo "Running ShellCheck..."
+          echo "Excluding migrations before timestamp 1754228679"
+
+          # Run shellcheck on all shell files, filtering old migrations
+          while IFS= read -r -d '' file; do
+            # If it's a migration, check the timestamp
+            if [[ "$file" =~ migrations/([0-9]+)\.sh$ ]]; then
+              timestamp="${BASH_REMATCH[1]}"
+              if [[ "$timestamp" -le "1754228679" ]]; then
+                continue  # Skip old migrations
+              fi
+            fi
+            
+            shellcheck -x -e SC1091 -e SC2086 -e SC2034 -e SC1090 "$file" || true
+          done < <(find . -name "*.sh" -type f -print0)
+
+  summary:
+    runs-on: ubuntu-latest
+    needs: [syntax-check, file-checks, shellcheck]
+    name: CI Summary
+    if: always()
+    steps:
+      - name: Summary
+        run: |
+          echo "## CI Summary"
+          echo "Required checks completed!"
+          echo ""
+          echo "### Check Results:"
+          echo "- Syntax validation: ${{ needs.syntax-check.result }}"
+          echo "- File validation: ${{ needs.file-checks.result }}"
+          echo "- Shellcheck: ${{ needs.shellcheck.result }}"
+          echo ""
+          if [[ "${{ needs.syntax-check.result }}" == "success" ]] && \
+             [[ "${{ needs.file-checks.result }}" == "success" ]] && \
+             [[ "${{ needs.shellcheck.result }}" == "success" ]]; then
+            echo "✅ All required checks passed!"
+          else
+            echo "❌ Some checks failed"
+            exit 1
+          fi
