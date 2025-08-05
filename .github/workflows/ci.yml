@@ -187,6 +187,7 @@ jobs:
           export OMARCHY_REF="${{ github.head_ref || github.ref_name }}"
           export CI=true
           export GITHUB_ACTIONS=true
+          export TERM=xterm
           
           # Set non-interactive values for the installation
           export OMARCHY_USER_NAME="CI Test User"
@@ -196,7 +197,7 @@ jobs:
           
           # Use wget to download the boot script (aligning with the documented installation method)
           wget -qO- https://raw.githubusercontent.com/${{ github.repository }}/${{ github.head_ref || github.ref_name }}/boot.sh | \
-            OMARCHY_REPO="${{ github.repository }}" OMARCHY_REF="${{ github.head_ref || github.ref_name }}" bash || {
+            OMARCHY_REPO="${{ github.repository }}" OMARCHY_REF="${{ github.head_ref || github.ref_name }}" TERM=xterm bash || {
             echo "Installation failed!"
             exit 1
           }
