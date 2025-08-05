@@ -195,16 +195,29 @@ jobs:
           cat > /usr/local/bin/systemctl << 'WRAPPER'
           #!/bin/bash
           # Wrapper for systemctl in container environment
-          if [[ "$1" == "enable" ]] && [[ "$2" == "--now" ]]; then
-            # In container, just enable without starting
-            echo "Container mode: enabling $3 without starting"
-            /usr/bin/systemctl enable "$3"
-          else
-            # Pass through to real systemctl
-            /usr/bin/systemctl "$@"
-          fi
+          case "$1" in
+            "enable")
+              if [[ "$2" == "--now" ]]; then
+                # In container, just enable without starting
+                echo "Container mode: enabling $3 without starting"
+                shift 2  # Remove 'enable --now'
+                /usr/bin/systemctl enable "$@"
+              else
+                /usr/bin/systemctl "$@"
+              fi
+              ;;
+            "daemon-reload"|"mask"|"disable")
+              echo "Container mode: skipping systemctl $1"
+              exit 0
+              ;;
+            *)
+              # Pass through to real systemctl
+              /usr/bin/systemctl "$@"
+              ;;
+          esac
           WRAPPER
           chmod +x /usr/local/bin/systemctl
+
           # Create mkinitcpio wrapper for container environment
           cat > /usr/local/bin/mkinitcpio << 'WRAPPER'
           #!/bin/bash
@@ -212,6 +225,14 @@ jobs:
           exit 0
           WRAPPER
           chmod +x /usr/local/bin/mkinitcpio
+
+          # Create grub-mkconfig wrapper for container environment
+          cat > /usr/local/bin/grub-mkconfig << 'WRAPPER'
+          #!/bin/bash
+          echo "Container mode: skipping grub-mkconfig (no bootloader in container)"
+          exit 0
+          WRAPPER
+          chmod +x /usr/local/bin/grub-mkconfig
 
           # Switch to test user
           su - testuser << 'EOF'
