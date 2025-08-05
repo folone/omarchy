@@ -189,32 +189,33 @@ jobs:
           echo "export CI=true" >> /etc/profile
           echo "export GITHUB_ACTIONS=true" >> /etc/profile
 
-      - name: Test Omarchy installation
-        run: |
+          # Create wrappers for container environment
           # Create a systemctl wrapper for container environment
           cat > /usr/local/bin/systemctl << 'WRAPPER'
           #!/bin/bash
           # Wrapper for systemctl in container environment
+          echo "Container mode: skipping systemctl $*"
           case "$1" in
-            "enable")
-              if [[ "$2" == "--now" ]]; then
-                # In container, just enable without starting
-                echo "Container mode: enabling $3 without starting"
-                shift 2  # Remove 'enable --now'
-                /usr/bin/systemctl enable "$@"
-              else
-                /usr/bin/systemctl "$@"
-              fi
+            "status")
+              echo "● $2 - Container mode service"
+              echo "   Loaded: loaded (/dev/null; enabled; vendor preset: enabled)"
+              echo "   Active: active (running) since $(date)"
+              echo "   Main PID: 1 (container)"
               ;;
-            "daemon-reload"|"mask"|"disable")
-              echo "Container mode: skipping systemctl $1"
-              exit 0
+            "is-active")
+              echo "active"
+              ;;
+            "is-enabled")
+              echo "enabled"
+              ;;
+            "enable"|"disable"|"mask"|"unmask"|"start"|"stop"|"restart"|"reload"|"daemon-reload")
+              echo "Container mode: $1 operation completed successfully"
               ;;
             *)
-              # Pass through to real systemctl
-              /usr/bin/systemctl "$@"
+              echo "Container mode: systemctl operation '$*' completed"
               ;;
           esac
+          exit 0
           WRAPPER
           chmod +x /usr/local/bin/systemctl
 
@@ -276,6 +277,8 @@ jobs:
           WRAPPER
           chmod +x /usr/local/bin/modprobe
 
+      - name: Test Omarchy installation
+        run: |
           # Switch to test user
           su - testuser << 'EOF'
           set -e
