@@ -149,9 +149,89 @@ jobs:
             shellcheck -x -e SC1091 -e SC2086 -e SC2034 -e SC1090 "$file" || true
           done < <(find . -name "*.sh" -type f -print0)
 
+  installation-test:
+    runs-on: ubuntu-latest
+    name: Installation Test
+    container:
+      image: archlinux:latest
+      options: --privileged
+    steps:
+      - name: Setup Arch Linux
+        run: |
+          # Update package database
+          pacman -Sy --noconfirm
+          
+          # Install basic dependencies
+          pacman -S --noconfirm --needed base-devel git sudo wget
+
+      - name: Create test user
+        run: |
+          # Create a non-root user for testing (Omarchy shouldn't run as root)
+          useradd -m -G wheel testuser
+          echo "testuser ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+
+      - name: Prepare environment
+        run: |
+          # Set up environment variables for CI
+          echo "export CI=true" >> /etc/profile
+          echo "export GITHUB_ACTIONS=true" >> /etc/profile
+
+      - name: Test Omarchy installation
+        run: |
+          # Switch to test user
+          su - testuser << 'EOF'
+          set -e
+          
+          # Set up environment for the installation
+          export OMARCHY_REPO="${{ github.repository }}"
+          export OMARCHY_REF="${{ github.head_ref || github.ref_name }}"
+          export CI=true
+          export GITHUB_ACTIONS=true
+          
+          # Set non-interactive values for the installation
+          export OMARCHY_USER_NAME="CI Test User"
+          export OMARCHY_USER_EMAIL="ci@test.local"
+          
+          echo "Testing Omarchy installation from repo: $OMARCHY_REPO, ref: $OMARCHY_REF"
+          
+          # Use wget to download the boot script (aligning with the documented installation method)
+          wget -qO- https://raw.githubusercontent.com/${{ github.repository }}/${{ github.head_ref || github.ref_name }}/boot.sh | \
+            OMARCHY_REPO="${{ github.repository }}" OMARCHY_REF="${{ github.head_ref || github.ref_name }}" bash || {
+            echo "Installation failed!"
+            exit 1
+          }
+          
+          echo "✅ Omarchy installation completed successfully!"
+          EOF
+
+      - name: Verify installation
+        run: |
+          su - testuser << 'EOF'
+          # Check that key directories were created
+          if [[ -d "$HOME/.local/share/omarchy" ]]; then
+            echo "✅ Omarchy directory exists"
+          else
+            echo "❌ Omarchy directory not found"
+            exit 1
+          fi
+
+          # Check that some key files exist
+          if [[ -f "$HOME/.config/hypr/hyprland.conf" ]]; then
+            echo "✅ Hyprland config exists"
+          else
+            echo "❌ Hyprland config not found"
+          fi
+
+          if [[ -f "$HOME/.config/waybar/config.jsonc" ]]; then
+            echo "✅ Waybar config exists"
+          else
+            echo "❌ Waybar config not found"
+          fi
+          EOF
+
   summary:
     runs-on: ubuntu-latest
-    needs: [syntax-check, file-checks, shellcheck]
+    needs: [syntax-check, file-checks, shellcheck, installation-test]
     name: CI Summary
     if: always()
     steps:
@@ -164,10 +244,11 @@ jobs:
           echo "- Syntax validation: ${{ needs.syntax-check.result }}"
           echo "- File validation: ${{ needs.file-checks.result }}"
           echo "- Shellcheck: ${{ needs.shellcheck.result }}"
+          echo "- Installation test: ${{ needs.installation-test.result }}"
           echo ""
           if [[ "${{ needs.syntax-check.result }}" == "success" ]] && \
              [[ "${{ needs.file-checks.result }}" == "success" ]] && \
-             [[ "${{ needs.shellcheck.result }}" == "success" ]]; then
+             [[ "${{ needs.installation-test.result }}" == "success" ]]; then
             echo "✅ All required checks passed!"
           else
             echo "❌ Some checks failed"
