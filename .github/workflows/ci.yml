@@ -162,7 +162,20 @@ jobs:
           pacman -Sy --noconfirm
 
           # Install basic dependencies
-          pacman -S --noconfirm --needed base-devel git sudo wget
+          pacman -S --noconfirm --needed base-devel git sudo wget mkinitcpio
+
+          # Create a minimal mkinitcpio.conf for the container environment
+          cat > /etc/mkinitcpio.conf << 'MKINITCPIO'
+          # Minimal mkinitcpio.conf for CI container
+          MODULES=()
+          BINARIES=()
+          FILES=()
+          HOOKS=(base udev autodetect modconf block filesystems keyboard fsck)
+          MKINITCPIO
+
+          # Create empty kernel preset to prevent mkinitcpio errors
+          mkdir -p /etc/mkinitcpio.d/
+          touch /etc/mkinitcpio.d/linux.preset
 
       - name: Create test user
         run: |
@@ -192,6 +205,13 @@ jobs:
           fi
           WRAPPER
           chmod +x /usr/local/bin/systemctl
+          # Create mkinitcpio wrapper for container environment
+          cat > /usr/local/bin/mkinitcpio << 'WRAPPER'
+          #!/bin/bash
+          echo "Container mode: skipping mkinitcpio (no kernel in container)"
+          exit 0
+          WRAPPER
+          chmod +x /usr/local/bin/mkinitcpio
 
           # Switch to test user
           su - testuser << 'EOF'
