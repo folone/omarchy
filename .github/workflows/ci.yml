@@ -160,7 +160,7 @@ jobs:
         run: |
           # Update package database
           pacman -Sy --noconfirm
-          
+
           # Install basic dependencies
           pacman -S --noconfirm --needed base-devel git sudo wget
 
@@ -178,30 +178,46 @@ jobs:
 
       - name: Test Omarchy installation
         run: |
+          # Create a systemctl wrapper for container environment
+          cat > /usr/local/bin/systemctl << 'WRAPPER'
+          #!/bin/bash
+          # Wrapper for systemctl in container environment
+          if [[ "$1" == "enable" ]] && [[ "$2" == "--now" ]]; then
+            # In container, just enable without starting
+            echo "Container mode: enabling $3 without starting"
+            /usr/bin/systemctl enable "$3"
+          else
+            # Pass through to real systemctl
+            /usr/bin/systemctl "$@"
+          fi
+          WRAPPER
+          chmod +x /usr/local/bin/systemctl
+
           # Switch to test user
           su - testuser << 'EOF'
           set -e
-          
+
           # Set up environment for the installation
           export OMARCHY_REPO="${{ github.repository }}"
           export OMARCHY_REF="${{ github.head_ref || github.ref_name }}"
           export CI=true
           export GITHUB_ACTIONS=true
           export TERM=xterm
-          
+          export PATH="/usr/local/bin:$PATH"
+
           # Set non-interactive values for the installation
           export OMARCHY_USER_NAME="CI Test User"
           export OMARCHY_USER_EMAIL="ci@test.local"
-          
+
           echo "Testing Omarchy installation from repo: $OMARCHY_REPO, ref: $OMARCHY_REF"
-          
+
           # Use wget to download the boot script (aligning with the documented installation method)
           wget -qO- https://raw.githubusercontent.com/${{ github.repository }}/${{ github.head_ref || github.ref_name }}/boot.sh | \
-            OMARCHY_REPO="${{ github.repository }}" OMARCHY_REF="${{ github.head_ref || github.ref_name }}" TERM=xterm bash || {
+            OMARCHY_REPO="${{ github.repository }}" OMARCHY_REF="${{ github.head_ref || github.ref_name }}" TERM=xterm PATH="/usr/local/bin:$PATH" bash || {
             echo "Installation failed!"
             exit 1
           }
-          
+
           echo "✅ Omarchy installation completed successfully!"
           EOF
 
