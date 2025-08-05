@@ -234,6 +234,48 @@ jobs:
           WRAPPER
           chmod +x /usr/local/bin/grub-mkconfig
 
+          # Create iptables/ip6tables wrappers for container environment
+          cat > /usr/local/bin/iptables << 'WRAPPER'
+          #!/bin/bash
+          echo "Container mode: skipping iptables (no netfilter modules in container)"
+          exit 0
+          WRAPPER
+          chmod +x /usr/local/bin/iptables
+
+          cat > /usr/local/bin/ip6tables << 'WRAPPER'
+          #!/bin/bash
+          echo "Container mode: skipping ip6tables (no netfilter modules in container)"
+          exit 0
+          WRAPPER
+          chmod +x /usr/local/bin/ip6tables
+
+          # Create ufw wrapper for container environment
+          cat > /usr/local/bin/ufw << 'WRAPPER'
+          #!/bin/bash
+          echo "Container mode: skipping ufw (no netfilter modules in container)"
+          case "$1" in
+            "status")
+              echo "Status: inactive (container mode)"
+              ;;
+            "enable"|"disable"|"--force"|"logging")
+              echo "Container mode: firewall command '$*' skipped"
+              ;;
+            *)
+              echo "Container mode: firewall command '$*' skipped"
+              ;;
+          esac
+          exit 0
+          WRAPPER
+          chmod +x /usr/local/bin/ufw
+
+          # Create modprobe wrapper for container environment
+          cat > /usr/local/bin/modprobe << 'WRAPPER'
+          #!/bin/bash
+          echo "Container mode: skipping modprobe '$*' (no kernel modules in container)"
+          exit 0
+          WRAPPER
+          chmod +x /usr/local/bin/modprobe
+
           # Switch to test user
           su - testuser << 'EOF'
           set -e
@@ -249,6 +291,9 @@ jobs:
           # Set non-interactive values for the installation
           export OMARCHY_USER_NAME="CI Test User"
           export OMARCHY_USER_EMAIL="ci@test.local"
+
+          # Additional container-specific environment variables
+          export OMARCHY_CONTAINER_MODE=true
 
           echo "Testing Omarchy installation from repo: $OMARCHY_REPO, ref: $OMARCHY_REF"
 
