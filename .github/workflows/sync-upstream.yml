@@ -3,36 +3,37 @@ name: Sync with Upstream
 on:
   schedule:
     # Run daily at 10 AM UTC
-    - cron: '0 10 * * *'
-  workflow_dispatch:  # Allow manual triggering
+    - cron: "0 10 * * *"
+  workflow_dispatch: # Allow manual triggering
 
 permissions:
   contents: write
   pull-requests: write
   issues: write
   repository-projects: write
+  actions: write
 
 jobs:
   sync-upstream:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
-          fetch-depth: 0  # Fetch all history for proper merging
-      
+          fetch-depth: 0 # Fetch all history for proper merging
+
       - name: Set up origin HEAD
         run: |
           # GitHub Actions doesn't always set origin/HEAD, so we need to set it manually
           git remote set-head origin -a
-      
+
       - name: Configure Git
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-      
+
       - name: Add upstream remote
         run: |
           git remote add upstream https://github.com/basecamp/omarchy.git
@@ -40,7 +41,7 @@ jobs:
           git fetch upstream
           echo "Upstream branches:"
           git branch -r | grep upstream/ || echo "No upstream branches found"
-      
+
       - name: Get default branch
         id: default_branch
         run: |
@@ -51,7 +52,7 @@ jobs:
             # If that fails, query GitHub API to get the default branch
             DEFAULT_BRANCH=$(git ls-remote --symref origin HEAD | awk '/^ref:/ {sub(/refs\/heads\//, "", $2); print $2}')
           fi
-          
+
           # If still empty, fallback to common defaults
           if [ -z "$DEFAULT_BRANCH" ]; then
             if git show-ref --verify --quiet refs/remotes/origin/main; then
@@ -63,15 +64,15 @@ jobs:
               exit 1
             fi
           fi
-          
+
           echo "Detected default branch: $DEFAULT_BRANCH"
           echo "name=$DEFAULT_BRANCH" >> $GITHUB_OUTPUT
-      
+
       - name: Check for upstream changes
         id: check_changes
         run: |
           DEFAULT_BRANCH="${{ steps.default_branch.outputs.name }}"
-          
+
           # Verify upstream branch exists
           if ! git show-ref --verify --quiet "refs/remotes/upstream/$DEFAULT_BRANCH"; then
             echo "Error: Upstream branch 'upstream/$DEFAULT_BRANCH' not found"
@@ -79,10 +80,10 @@ jobs:
             git branch -r | grep upstream/
             exit 1
           fi
-          
+
           # Check if there are any new commits in upstream
           UPSTREAM_COMMITS=$(git rev-list HEAD..upstream/$DEFAULT_BRANCH --count 2>/dev/null || echo "0")
-          
+
           if [ "$UPSTREAM_COMMITS" -eq 0 ]; then
             echo "No new changes from upstream"
             echo "has_changes=false" >> $GITHUB_OUTPUT
@@ -91,18 +92,7 @@ jobs:
             echo "has_changes=true" >> $GITHUB_OUTPUT
             echo "commit_count=$UPSTREAM_COMMITS" >> $GITHUB_OUTPUT
           fi
-      
-      - name: Create sync branch
-        if: steps.check_changes.outputs.has_changes == 'true'
-        id: create_branch
-        run: |
-          # Create a unique branch name with timestamp
-          SYNC_BRANCH="sync-upstream-$(date +%Y%m%d-%H%M%S)"
-          echo "name=$SYNC_BRANCH" >> $GITHUB_OUTPUT
-          
-          # Create and checkout the sync branch from the default branch
-          git checkout -b $SYNC_BRANCH origin/${{ steps.default_branch.outputs.name }}
-      
+
       - name: Merge upstream changes
         if: steps.check_changes.outputs.has_changes == 'true'
         id: merge
@@ -118,74 +108,35 @@ jobs:
             git add -A
             git commit -m "Merge upstream changes from basecamp/omarchy (with conflicts)"
           fi
-      
-      - name: Push sync branch
-        if: steps.check_changes.outputs.has_changes == 'true'
-        run: |
-          git push origin ${{ steps.create_branch.outputs.name }}
-      
+
       - name: Create Pull Request
         if: steps.check_changes.outputs.has_changes == 'true'
-        env:
-          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
-          GH_TOKEN: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
-        run: |
-          # Set up PR details
-          PR_TITLE="Sync with upstream basecamp/omarchy"
-          PR_BASE="${{ steps.default_branch.outputs.name }}"
-          PR_HEAD="${{ steps.create_branch.outputs.name }}"
-          
-          # Create PR body based on conflict status
-          if [ "${{ steps.merge.outputs.has_conflicts }}" == "true" ]; then
-            PR_BODY="This PR syncs changes from the upstream repository [basecamp/omarchy](https://github.com/basecamp/omarchy).
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
+          branch: sync-upstream
+          title: "Sync with upstream basecamp/omarchy"
+          body: |
+            This PR syncs changes from the upstream repository [basecamp/omarchy](https://github.com/basecamp/omarchy).
 
-          ## ⚠️ Merge Conflicts
+            ## ${{ steps.merge.outputs.has_conflicts == 'true' && '⚠️ Merge Conflicts' || '✅ No merge conflicts detected' }}
 
-          This PR contains merge conflicts that need to be resolved manually before merging.
+            ${{ steps.merge.outputs.has_conflicts == 'true' && 'This PR contains merge conflicts that need to be resolved manually before merging.' || 'No merge conflicts detected.' }}
 
-          ## Changes
+            ## Changes
 
-          This PR includes ${{ steps.check_changes.outputs.commit_count }} new commits from upstream's \`${{ steps.default_branch.outputs.name }}\` branch.
+            This PR includes ${{ steps.check_changes.outputs.commit_count }} new commits from upstream's `${{ steps.default_branch.outputs.name }}` branch.
 
-          ## Next Steps
+            ## Next Steps
 
-          1. Resolve the merge conflicts
-          2. Review the changes
-          3. Remove draft status when ready
-          4. Merge when all checks pass
+            ${{ steps.merge.outputs.has_conflicts == 'true' && '1. Resolve the merge conflicts
+            2. Review the changes
+            3. Remove draft status when ready
+            4. Merge when all checks pass' || '1. Review the changes
+            2. Ensure all tests pass
+            3. Merge when ready' }}
 
-          ---
-          *This PR was automatically created by the sync-upstream workflow.*"
-            
-            # Create draft PR with conflicts
-            gh pr create \
-              --title "$PR_TITLE" \
-              --body "$PR_BODY" \
-              --base "$PR_BASE" \
-              --head "$PR_HEAD" \
-              --draft
-          else
-            PR_BODY="This PR syncs changes from the upstream repository [basecamp/omarchy](https://github.com/basecamp/omarchy).
-
-          ## Changes
-
-          This PR includes ${{ steps.check_changes.outputs.commit_count }} new commits from upstream's \`${{ steps.default_branch.outputs.name }}\` branch.
-
-          ✅ No merge conflicts detected.
-
-          ## Next Steps
-
-          1. Review the changes
-          2. Ensure all tests pass
-          3. Merge when ready
-
-          ---
-          *This PR was automatically created by the sync-upstream workflow.*"
-            
-            # Create regular PR without conflicts
-            gh pr create \
-              --title "$PR_TITLE" \
-              --body "$PR_BODY" \
-              --base "$PR_BASE" \
-              --head "$PR_HEAD"
-          fi 
+            ---
+            *This PR was automatically created by the sync-upstream workflow.*
+          draft: ${{ steps.merge.outputs.has_conflicts == 'true' }}
+          delete-branch: true
