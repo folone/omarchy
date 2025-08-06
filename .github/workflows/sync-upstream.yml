@@ -91,18 +91,38 @@ jobs:
             echo "Found $UPSTREAM_COMMITS new commits from upstream"
             echo "has_changes=true" >> $GITHUB_OUTPUT
             echo "commit_count=$UPSTREAM_COMMITS" >> $GITHUB_OUTPUT
+
+            # Check if we have diverged from upstream (i.e., we have commits that upstream doesn't)
+            LOCAL_COMMITS=$(git rev-list upstream/$DEFAULT_BRANCH..HEAD --count 2>/dev/null || echo "0")
+            echo "Found $LOCAL_COMMITS local commits ahead of upstream"
+            echo "local_commits=$LOCAL_COMMITS" >> $GITHUB_OUTPUT
+
+            # Determine if this is a simple fast-forward or a real merge
+            if [ "$LOCAL_COMMITS" -eq 0 ]; then
+              echo "This will be a fast-forward merge (no local changes)"
+              echo "is_fast_forward=true" >> $GITHUB_OUTPUT
+            else
+              echo "This will be a merge (local changes present)"
+              echo "is_fast_forward=false" >> $GITHUB_OUTPUT
+            fi
           fi
 
       - name: Merge upstream changes
         if: steps.check_changes.outputs.has_changes == 'true'
         id: merge
         run: |
-          # Try to merge upstream changes
+          # Try to merge upstream changes and detect actual conflicts
           if git merge upstream/${{ steps.default_branch.outputs.name }} --no-edit; then
-            echo "Merge successful without conflicts"
-            echo "has_conflicts=false" >> $GITHUB_OUTPUT
+            # Check if there were any conflict markers in the merge
+            if git diff --check HEAD~1 HEAD 2>/dev/null; then
+              echo "Merge successful without conflicts"
+              echo "has_conflicts=false" >> $GITHUB_OUTPUT
+            else
+              echo "Merge completed but may have had conflicts that were auto-resolved"
+              echo "has_conflicts=false" >> $GITHUB_OUTPUT
+            fi
           else
-            echo "Merge conflicts detected"
+            echo "Merge failed due to conflicts"
             echo "has_conflicts=true" >> $GITHUB_OUTPUT
             # Stage all files including conflicts
             git add -A
@@ -119,13 +139,14 @@ jobs:
           body: |
             This PR syncs changes from the upstream repository [basecamp/omarchy](https://github.com/basecamp/omarchy).
 
-            ## ${{ steps.merge.outputs.has_conflicts == 'true' && '⚠️ Merge Conflicts' || '✅ No merge conflicts detected' }}
+            ## ${{ steps.check_changes.outputs.is_fast_forward == 'true' && '⚡ Fast-forward Update' || (steps.merge.outputs.has_conflicts == 'true' && '⚠️ Merge Conflicts' || '🔀 Clean Merge') }}
 
-            ${{ steps.merge.outputs.has_conflicts == 'true' && 'This PR contains merge conflicts that need to be resolved manually before merging.' || 'No merge conflicts detected.' }}
+            ${{ steps.check_changes.outputs.is_fast_forward == 'true' && 'This is a simple fast-forward update with no local changes to merge.' || (steps.merge.outputs.has_conflicts == 'true' && 'This PR contains merge conflicts that need to be resolved manually before merging.' || 'Local changes merged cleanly with upstream changes.') }}
 
             ## Changes
 
             This PR includes ${{ steps.check_changes.outputs.commit_count }} new commits from upstream's `${{ steps.default_branch.outputs.name }}` branch.
+            ${{ steps.check_changes.outputs.is_fast_forward == 'false' && format('Additionally, there are {0} local commits that will be preserved.', steps.check_changes.outputs.local_commits) || '' }}
 
             ## Next Steps
 
