@@ -161,9 +161,6 @@ jobs:
               --body "$PR_BODY" \
               --base "$PR_BASE" \
               --head "$PR_HEAD" \
-              --label "upstream-sync" \
-              --label "automated" \
-              --label "has-conflicts" \
               --draft
           else
             PR_BODY="This PR syncs changes from the upstream repository [basecamp/omarchy](https://github.com/basecamp/omarchy).
@@ -188,7 +185,5 @@ jobs:
               --title "$PR_TITLE" \
               --body "$PR_BODY" \
               --base "$PR_BASE" \
-              --head "$PR_HEAD" \
-              --label "upstream-sync" \
-              --label "automated"
+              --head "$PR_HEAD"
           fi 
