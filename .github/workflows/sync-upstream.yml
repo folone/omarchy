@@ -9,6 +9,8 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  issues: write
+  repository-projects: write
 
 jobs:
   sync-upstream:
@@ -18,7 +20,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
           fetch-depth: 0  # Fetch all history for proper merging
       
       - name: Set up origin HEAD
@@ -125,8 +127,8 @@ jobs:
       - name: Create Pull Request
         if: steps.check_changes.outputs.has_changes == 'true'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           # Set up PR details
           PR_TITLE="Sync with upstream basecamp/omarchy"
