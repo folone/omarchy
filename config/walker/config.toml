@@ -72,4 +72,11 @@ hidden = true
 [[providers.prefixes]]
 prefix = "$"
 provider = "clipboard"
+<<<<<<< HEAD
+>>>>>>> upstream/master
+=======
+
+[[emergencies]]
+text = "Restart Walker"
+command = "omarchy-restart-walker"
 >>>>>>> upstream/master
